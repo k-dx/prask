@@ -27,36 +27,88 @@ Wygenerowany certyfikat wrzuciłem do `/etc/ssl/certs/`, a klucz prywatny do `/e
 ## własne CA
 
 1c) generujemy klucz prywatny (do zarządzania CA):
-```
+```sh
 openssl genpkey -algorithm RSA -out ca.key.pem -aes256 -pkeyopt rsa_keygen_bits:2048
 ```
 
 1c) generujemy self-signed CA certificate:
+```sh
+openssl req -x509 -new -noenc -key ca.key.pem -sha256 -days 365 -out ca.cert.pem -subj "/CN=PraskRocksCA" -config <(cat <<-EOF
+[ req ] # konfiguracja dla polecenia req
+x509_extensions = ca_extensions
+
+[ ca_extensions ] # rozszerzenia dla certyfikatu CA, nazwa dowolna
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, digitalSignature, cRLSign, keyCertSign
+EOF
+)
 ```
-openssl req -x509 -new -noenc -key ca.key.pem -sha256 -days 365 -out ca.cert.pem \
-  -subj "/CN=PraskRocksCA" \
-  -addext "basicConstraints = critical,CA:TRUE" \
-  -addext "keyUsage = critical, digitalSignature, cRLSign, keyCertSign" \
-  -addext "subjectKeyIdentifier = hash" \
-  -addext "authorityKeyIdentifier = keyid:always,issuer:always"
+
+sprawdzamy czy typ certyfikatu to CA:
+```sh
+openssl x509 -in ca.cert.pem -noout -text
+```
+
+Dostajemy:
+```
+		(...)
+		X509v3 extensions:
+			X509v3 Basic Constraints: critical
+				CA:TRUE
+			X509v3 Key Usage: critical
+				Digital Signature, Certificate Sign, CRL Sign
+		(...)
 ```
 
 1d) generujemy CSR (certificate signing request) dla domeny
-```
-openssl req -new -noenc -newkey rsa:2048 -keyout www2.prask.rocks.key.pem -out www2.prask.rocks.csr.pem -subj "/CN=www2.prask.rocks"
+```sh
+openssl req -new -noenc -newkey rsa:2048 -keyout www2.prask.rocks.key.pem -out www2.prask.rocks.csr.pem -config <(cat <<-EOF
+[ req ]
+distinguished_name = req_distinguished_name
+req_extensions = csr_extensions
+prompt = no
+
+[ req_distinguished_name ]
+CN = www2.prask.rocks
+
+[ csr_extensions ]
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+basicConstraints = critical, CA:FALSE
+EOF
+)
 ```
 
-TODO! sprawdzamy czy typ CSR to serwer:
+sprawdzamy czy typ CSR to serwer:
+```sh
+openssl req -in www2.prask.rocks.csr.pem -noout -text
+```
+
+Dostajemy:
+```
+		(...)
+        Attributes:
+            Requested Extensions:
+                X509v3 Key Usage: critical
+                    Digital Signature, Key Encipherment
+                X509v3 Extended Key Usage: 
+                    TLS Web Server Authentication, TLS Web Client Authentication
+                X509v3 Basic Constraints: critical
+                    CA:FALSE
+		(...)
+```
 
 
 1d) podpisujemy CSR jako CA:
-```
+
+```sh
 openssl x509 -req -in www2.prask.rocks.csr.pem -CA ca.cert.pem -CAkey ca.key.pem -CAcreateserial -out www2.prask.rocks.cert.pem -days 365 -sha256
 ```
 
 #### Konfiguracja certyfikatów w nginx
 
 Nginx domyślnie dopuszcza TLSv1.2 i v1.3, więc nie trzeba tego dodatkowo konfigurować.
+
 ```
 server {
     ...
@@ -78,7 +130,36 @@ sudo update-ca-certificates
 
 [Firefox nie używa systemowych certyfikatów](https://askubuntu.com/questions/1315866/how-to-make-firefox-trust-my-companies-certificate-on-my-machine)
 
-### Let's encrypt
+### 1e) Certyfikat z wildcardem
+
+Generujemy CSR z wildcardem:
+
+```sh
+openssl req -new -noenc -newkey rsa:2048 -keyout wildcard.rocks.key.pem -out wildcard.rocks.csr.pem -config <(cat <<-EOF
+[ req ]
+distinguished_name = req_distinguished_name
+req_extensions = csr_extensions
+prompt = no
+
+[ req_distinguished_name ]
+CN = *.rocks
+
+[ csr_extensions ]
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+basicConstraints = critical, CA:FALSE
+EOF
+)
+```
+
+Podpisujemy CSR jako CA:
+
+```sh
+openssl x509 -req -in wildcard.rocks.csr.pem -CA ca.cert.pem -CAkey ca.key.pem -CAcreateserial -out wildcard.rocks.cert.pem -days 365 -sha256
+```
+
+
+### 1f) Let's encrypt
 
 instalujemy certbota, który będzie automatycznie odnawiał certyfikat
 ```sh
