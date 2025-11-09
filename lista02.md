@@ -60,9 +60,10 @@ Dostajemy:
 		(...)
 ```
 
-1d) generujemy CSR (certificate signing request) dla domeny
+
+Zapisujemy konfigurację rozszerzeń do pliku `extensions.cnf`:
 ```sh
-openssl req -new -noenc -newkey rsa:2048 -keyout www2.prask.rocks.key.pem -out www2.prask.rocks.csr.pem -config <(cat <<-EOF
+cat <<-EOF > extensions.www2.cnf
 [ req ]
 distinguished_name = req_distinguished_name
 req_extensions = csr_extensions
@@ -75,8 +76,18 @@ CN = www2.prask.rocks
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth, clientAuth
 basicConstraints = critical, CA:FALSE
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = www2.prask.rocks
 EOF
-)
+```
+
+`alt_names` to SAN (Subject ALternative Name). Bez tego Firefox nie akceptuje certyfikatu.
+
+1d) generujemy CSR (certificate signing request) dla domeny `www2.prask.rocks`:
+```sh
+openssl req -new -noenc -newkey rsa:2048 -keyout www2.prask.rocks.key.pem -out www2.prask.rocks.csr.pem -config extensions.www2.cnf
 ```
 
 sprawdzamy czy typ CSR to serwer:
@@ -102,7 +113,7 @@ Dostajemy:
 1d) podpisujemy CSR jako CA:
 
 ```sh
-openssl x509 -req -in www2.prask.rocks.csr.pem -CA ca.cert.pem -CAkey ca.key.pem -CAcreateserial -out www2.prask.rocks.cert.pem -days 365 -sha256
+openssl x509 -req -in www2.prask.rocks.csr.pem -CA ca.cert.pem -CAkey ca.key.pem -CAcreateserial -out www2.prask.rocks.cert.pem -days 365 -sha256 -extensions csr_extensions -extfile extensions.www2.cnf
 ```
 
 #### Konfiguracja certyfikatów w nginx
